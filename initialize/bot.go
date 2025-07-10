@@ -1,6 +1,6 @@
 package initialize
 
-import "pkg/global"
+import "github.com/tranducnguyen/util_core/global"
 
 func InitBot() {
 	if global.Config.Bot.NumberBot == 0 {

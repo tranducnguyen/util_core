@@ -6,11 +6,12 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"pkg/global"
-	"pkg/helper"
-	"pkg/types"
 	"sync"
 	"time"
+
+	"github.com/tranducnguyen/util_core/global"
+	"github.com/tranducnguyen/util_core/helper"
+	"github.com/tranducnguyen/util_core/types"
 )
 
 // ProxyStatus represents the status of a proxy

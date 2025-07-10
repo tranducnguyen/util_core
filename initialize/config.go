@@ -2,7 +2,8 @@ package initialize
 
 import (
 	"fmt"
-	"pkg/global"
+
+	"github.com/tranducnguyen/util_core/global"
 
 	"github.com/spf13/viper"
 )

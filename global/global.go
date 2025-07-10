@@ -2,8 +2,9 @@ package global
 
 import (
 	"context"
-	"pkg/logger"
-	"pkg/setting"
+
+	"github.com/tranducnguyen/util_core/logger"
+	"github.com/tranducnguyen/util_core/setting"
 )
 
 var (

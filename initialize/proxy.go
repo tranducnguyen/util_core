@@ -1,7 +1,7 @@
 package initialize
 
 import (
-	"pkg/proxy_pool"
+	"github.com/tranducnguyen/util_core/proxy_pool"
 )
 
 func InitProxy(concurrency int, filepath string) {

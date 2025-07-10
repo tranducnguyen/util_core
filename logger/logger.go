@@ -2,7 +2,8 @@ package logger
 
 import (
 	"os"
-	"pkg/setting"
+
+	"github.com/tranducnguyen/util_core/setting"
 
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"

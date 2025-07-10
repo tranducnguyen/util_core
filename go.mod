@@ -1,4 +1,4 @@
-module pkg
+module github.com/tranducnguyen/util_core
 
 go 1.23.2
 

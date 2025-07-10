@@ -3,10 +3,11 @@ package bot
 import (
 	"context"
 	"fmt"
-	"pkg/filehandle"
-	"pkg/global"
-	"pkg/proxy_pool"
 	"sync"
+
+	"github.com/tranducnguyen/util_core/filehandle"
+	"github.com/tranducnguyen/util_core/global"
+	"github.com/tranducnguyen/util_core/proxy_pool"
 )
 
 var (

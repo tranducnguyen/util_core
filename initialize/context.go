@@ -2,7 +2,8 @@ package initialize
 
 import (
 	"context"
-	"pkg/global"
+
+	"github.com/tranducnguyen/util_core/global"
 )
 
 func InitContext() {

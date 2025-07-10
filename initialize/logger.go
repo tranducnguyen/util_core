@@ -1,9 +1,9 @@
 package initialize
 
 import (
-	"pkg/global"
-	"pkg/logger"
-	"pkg/setting"
+	"github.com/tranducnguyen/util_core/global"
+	"github.com/tranducnguyen/util_core/logger"
+	"github.com/tranducnguyen/util_core/setting"
 )
 
 func InitLogger() {

@@ -2,9 +2,10 @@ package clientpool
 
 import (
 	"crypto/tls"
-	"pkg/types"
 	"sync"
 	"time"
+
+	"github.com/tranducnguyen/util_core/types"
 
 	"github.com/valyala/fasthttp"
 	"github.com/valyala/fasthttp/fasthttpproxy"

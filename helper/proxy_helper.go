@@ -4,9 +4,10 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
-	"pkg/global"
-	"pkg/types"
 	"strings"
+
+	"github.com/tranducnguyen/util_core/global"
+	"github.com/tranducnguyen/util_core/types"
 )
 
 // ParseProxy parses a proxy string in various formats and returns a Proxy struct
