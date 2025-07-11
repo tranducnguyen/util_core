@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/tranducnguyen/util_core/filehandle"
 	"github.com/tranducnguyen/util_core/global"
@@ -126,7 +127,35 @@ func (m *BotManager) Wait() {
 	m.wg.Wait()
 }
 
+func (m *BotManager) WaitingToOutOfTasks() {
+	ticker := time.NewTicker(500 * time.Millisecond) // Check mỗi 100ms
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-m.ctx.Done():
+			return
+		case <-ticker.C:
+			if m.IsAllTaskDone() {
+				time.Sleep(10 * time.Second)
+				if m.IsAllTaskDone() {
+					m.log("All channels are empty, all tasks completed")
+					return
+				}
+			}
+		}
+	}
+}
+
+func (m *BotManager) IsAllTaskDone() bool {
+	return len(m.tasks) == 0 &&
+		len(m.retries) == 0 &&
+		len(m.retries1) == 0 &&
+		len(m.retries2) == 0
+}
+
 func (m *BotManager) Shutdown() {
+	m.WaitingToOutOfTasks()
 	m.Stop()
 	m.cancel()
 	m.wg.Wait()
