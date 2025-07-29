@@ -54,6 +54,7 @@ type BotManager struct {
 	retries1  chan BotData
 	retries2  chan BotData
 	wg        sync.WaitGroup
+	wgTask    sync.WaitGroup
 	summaryMu sync.Mutex
 	summary   map[STATUS]int
 	hitFile   *filehandle.WriteHandler
@@ -128,6 +129,7 @@ func (m *BotManager) Wait() {
 }
 
 func (m *BotManager) WaitingToOutOfTasks() {
+	m.wgTask.Wait()
 	ticker := time.NewTicker(500 * time.Millisecond) // Check mỗi 100ms
 	defer ticker.Stop()
 
@@ -155,6 +157,7 @@ func (m *BotManager) IsAllTaskDone() bool {
 }
 
 func (m *BotManager) Shutdown() {
+
 	m.WaitingToOutOfTasks()
 	m.Stop()
 	m.cancel()
@@ -185,7 +188,9 @@ func (m *BotManager) worker() {
 				return
 			}
 			m.log(fmt.Sprintf("Do Task [%v,%v]", len(m.tasks), cap(m.tasks)))
+			m.wgTask.Add(1)
 			resp, err := m.fn(m.ctx, data)
+			m.wgTask.Done()
 			if err != nil {
 				m.log(err.Error())
 				m.IncreNum(Error)
@@ -209,7 +214,9 @@ func (m *BotManager) worker() {
 			}
 
 			m.log(fmt.Sprintf("Do Retry [%v,%v]", len(m.retries), cap(m.retries)))
+			m.wgTask.Add(1)
 			resp, err := m.fn(m.ctx, data)
+			m.wgTask.Done()
 			if err != nil {
 				m.IncreNum(Error)
 				continue
@@ -233,7 +240,9 @@ func (m *BotManager) worker() {
 			}
 
 			m.log(fmt.Sprintf("Do Retry1 [%v:%v]", len(m.retries1), cap(m.retries1)))
+			m.wgTask.Add(1)
 			resp, err := m.fn(m.ctx, data)
+			m.wgTask.Done()
 			if err != nil {
 				m.IncreNum(Error)
 				continue
@@ -257,7 +266,9 @@ func (m *BotManager) worker() {
 			}
 
 			m.log(fmt.Sprintf("Do Retry2 [%v:%v]", len(m.retries2), cap(m.retries2)))
+			m.wgTask.Add(1)
 			resp, err := m.fn(m.ctx, data)
+			m.wgTask.Done()
 			if err != nil {
 				m.IncreNum(Error)
 				continue
