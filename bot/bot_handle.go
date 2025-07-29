@@ -41,6 +41,8 @@ type BotData struct {
 
 type BotFunc func(ctx context.Context, data BotData) (BotResp, error)
 
+type ErrFunc func(err error)
+
 type BotLog func(msg string) error
 
 // BotManager quản lý pool workers để xử lý BotData.
@@ -48,6 +50,7 @@ type BotManager struct {
 	ctx       context.Context
 	cancel    context.CancelFunc
 	fn        BotFunc
+	erFn      ErrFunc
 	tasks     chan BotData
 	result    chan BotResp
 	retries   chan BotData
@@ -172,6 +175,10 @@ func (m *BotManager) SetLog(log BotLog) {
 	m.log = log
 }
 
+func (m *BotManager) SetErrorFn(fn ErrFunc) {
+	m.erFn = fn
+}
+
 func (m *BotManager) Log(msg string) {
 	m.log(msg)
 }
@@ -183,6 +190,14 @@ func (m *BotManager) DoneWait() {
 	m.wgTask.Done()
 }
 
+func (m *BotManager) OnError(err error) {
+	if m.erFn != nil {
+		m.erFn(err)
+	} else {
+		m.log(fmt.Sprintf("Error: %v", err))
+	}
+}
+
 func (m *BotManager) HandleTask(data BotData) {
 	m.wgTask.Add(1)
 	defer m.wgTask.Done()
@@ -190,8 +205,8 @@ func (m *BotManager) HandleTask(data BotData) {
 	resp, err := m.fn(m.ctx, data)
 
 	if err != nil {
-		m.log(err.Error())
 		m.IncreNum(Error)
+		m.OnError(err)
 		return
 	}
 
@@ -214,6 +229,7 @@ func (m *BotManager) HandleRetry(data BotData) {
 
 	if err != nil {
 		m.IncreNum(Error)
+		m.OnError(err)
 		return
 	}
 
@@ -238,6 +254,7 @@ func (m *BotManager) HandleRetry1(data BotData) {
 
 	if err != nil {
 		m.IncreNum(Error)
+		m.OnError(err)
 		return
 	}
 
@@ -261,6 +278,7 @@ func (m *BotManager) HandleRetry2(data BotData) {
 
 	if err != nil {
 		m.IncreNum(Error)
+		m.OnError(err)
 		return
 	}
 
