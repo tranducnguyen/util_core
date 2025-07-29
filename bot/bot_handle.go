@@ -157,10 +157,11 @@ func (m *BotManager) IsAllTaskDone() bool {
 }
 
 func (m *BotManager) Shutdown() {
-	m.wg.Wait()
+
 	m.WaitingToOutOfTasks()
 	m.Stop()
 	m.cancel()
+	m.wg.Wait()
 	close(m.tasks)
 	close(m.retries)
 
