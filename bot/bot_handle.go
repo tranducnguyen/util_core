@@ -176,6 +176,101 @@ func (m *BotManager) Log(msg string) {
 	m.log(msg)
 }
 
+func (m *BotManager) AddWait() {
+	m.wgTask.Add(1)
+}
+func (m *BotManager) DoneWait() {
+	m.wgTask.Done()
+}
+
+func (m *BotManager) HandleTask(data BotData) {
+	m.wgTask.Add(1)
+	defer m.wgTask.Done()
+	m.log(fmt.Sprintf("Do Task [%v,%v]", len(m.tasks), cap(m.tasks)))
+	resp, err := m.fn(m.ctx, data)
+
+	if err != nil {
+		m.log(err.Error())
+		m.IncreNum(Error)
+		return
+	}
+
+	m.IncreNum(resp.Type)
+	if resp.Type == Retries {
+		go func() {
+			m.retries <- data
+		}()
+
+	} else {
+		m.SaveData(resp)
+	}
+}
+
+func (m *BotManager) HandleRetry(data BotData) {
+	m.log(fmt.Sprintf("Do Retry [%v,%v]", len(m.retries), cap(m.retries)))
+	m.wgTask.Add(1)
+	defer m.wgTask.Done()
+	resp, err := m.fn(m.ctx, data)
+
+	if err != nil {
+		m.IncreNum(Error)
+		return
+	}
+
+	m.IncreNum(resp.Type)
+
+	if resp.Type == Retries {
+		m.Log("Send to retry1")
+		go func() {
+			m.retries1 <- data
+		}()
+
+	} else {
+		m.SaveData(resp)
+	}
+}
+
+func (m *BotManager) HandleRetry1(data BotData) {
+	m.log(fmt.Sprintf("Do Retry1 [%v:%v]", len(m.retries1), cap(m.retries1)))
+	m.wgTask.Add(1)
+	defer m.wgTask.Done()
+	resp, err := m.fn(m.ctx, data)
+
+	if err != nil {
+		m.IncreNum(Error)
+		return
+	}
+
+	m.IncreNum(resp.Type)
+	if resp.Type == Retries {
+		m.Log("Send to retry")
+		go func() {
+			m.retries <- data
+		}()
+
+	} else {
+		m.SaveData(resp)
+	}
+}
+
+func (m *BotManager) HandleRetry2(data BotData) {
+	m.log(fmt.Sprintf("Do Retry2 [%v:%v]", len(m.retries2), cap(m.retries2)))
+	m.wgTask.Add(1)
+	defer m.wgTask.Done()
+	resp, err := m.fn(m.ctx, data)
+
+	if err != nil {
+		m.IncreNum(Error)
+		return
+	}
+
+	if resp.Type == Retries {
+		resp.Type = Bad
+	}
+	m.IncreNum(resp.Type)
+	m.SaveData(resp)
+}
+
 func (m *BotManager) worker() {
 	defer m.wg.Done()
 	for {
@@ -186,98 +281,28 @@ func (m *BotManager) worker() {
 			if !ok {
 				return
 			}
-			m.log(fmt.Sprintf("Do Task [%v,%v]", len(m.tasks), cap(m.tasks)))
-			m.wgTask.Add(1)
-			resp, err := m.fn(m.ctx, data)
-			m.wgTask.Done()
-			if err != nil {
-				m.log(err.Error())
-				m.IncreNum(Error)
-				continue
-			}
-
-			m.IncreNum(resp.Type)
-			if resp.Type == Retries {
-				go func() {
-					m.retries <- data
-				}()
-
-			} else {
-				m.SaveData(resp)
-			}
+			m.HandleTask(data)
 
 		case data, ok := <-m.retries:
 			if !ok {
 				m.log(fmt.Sprintf("Do Retry %v", ok))
 				return
 			}
+			m.HandleRetry(data)
 
-			m.log(fmt.Sprintf("Do Retry [%v,%v]", len(m.retries), cap(m.retries)))
-			m.wgTask.Add(1)
-			resp, err := m.fn(m.ctx, data)
-			m.wgTask.Done()
-			if err != nil {
-				m.IncreNum(Error)
-				continue
-			}
-
-			m.IncreNum(resp.Type)
-
-			if resp.Type == Retries {
-				m.Log("Send to retry1")
-				go func() {
-					m.retries1 <- data
-				}()
-
-			} else {
-				m.SaveData(resp)
-			}
 		case data, ok := <-m.retries1:
 			if !ok {
 				m.log(fmt.Sprintf("Do Retry1 %v", ok))
 				return
 			}
-
-			m.log(fmt.Sprintf("Do Retry1 [%v:%v]", len(m.retries1), cap(m.retries1)))
-			m.wgTask.Add(1)
-			resp, err := m.fn(m.ctx, data)
-			m.wgTask.Done()
-			if err != nil {
-				m.IncreNum(Error)
-				continue
-			}
-
-			m.IncreNum(resp.Type)
-			if resp.Type == Retries {
-				m.Log("Send to retry")
-				go func() {
-					m.retries <- data
-				}()
-
-			} else {
-				m.SaveData(resp)
-			}
+			m.HandleRetry1(data)
 
 		case data, ok := <-m.retries2:
 			if !ok {
 				m.log(fmt.Sprintf("Do Retry2 %v", ok))
 				return
 			}
-
-			m.log(fmt.Sprintf("Do Retry2 [%v:%v]", len(m.retries2), cap(m.retries2)))
-			m.wgTask.Add(1)
-			resp, err := m.fn(m.ctx, data)
-			m.wgTask.Done()
-			if err != nil {
-				m.IncreNum(Error)
-				continue
-			}
-
-			if resp.Type == Retries {
-				resp.Type = Bad
-			}
-			m.IncreNum(resp.Type)
-			m.SaveData(resp)
+			m.HandleRetry2(data)
 		}
 
 	}
