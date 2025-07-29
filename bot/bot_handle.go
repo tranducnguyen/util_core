@@ -129,7 +129,6 @@ func (m *BotManager) Wait() {
 }
 
 func (m *BotManager) WaitingToOutOfTasks() {
-	m.wgTask.Wait()
 	ticker := time.NewTicker(500 * time.Millisecond) // Check mỗi 100ms
 	defer ticker.Stop()
 
@@ -150,6 +149,7 @@ func (m *BotManager) WaitingToOutOfTasks() {
 }
 
 func (m *BotManager) IsAllTaskDone() bool {
+	m.wgTask.Wait()
 	return len(m.tasks) == 0 &&
 		len(m.retries) == 0 &&
 		len(m.retries1) == 0 &&
@@ -157,7 +157,6 @@ func (m *BotManager) IsAllTaskDone() bool {
 }
 
 func (m *BotManager) Shutdown() {
-
 	m.WaitingToOutOfTasks()
 	m.Stop()
 	m.cancel()
