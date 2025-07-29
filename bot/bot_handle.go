@@ -66,9 +66,9 @@ type BotManager struct {
 
 func NewBotManager(parentCtx context.Context, poolSize int) *BotManager {
 	ctx, cancel := context.WithCancel(parentCtx)
-	fileResult, _ := filehandle.NewWriteHandler("hit.txt", 4096)
-	fileFailed, _ := filehandle.NewWriteHandler("error.txt", 4096)
-	fileCheck, _ := filehandle.NewWriteHandler("check.txt", 4096)
+	fileResult, _ := filehandle.NewWriteHandler("hit.txt", 1024)
+	fileFailed, _ := filehandle.NewWriteHandler("error.txt", 1024)
+	fileCheck, _ := filehandle.NewWriteHandler("check.txt", 1024)
 	m := &BotManager{
 		ctx:    ctx,
 		cancel: cancel,
@@ -129,7 +129,7 @@ func (m *BotManager) Wait() {
 }
 
 func (m *BotManager) WaitingToOutOfTasks() {
-	ticker := time.NewTicker(500 * time.Millisecond) // Check mỗi 100ms
+	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
 
 	for {
@@ -138,7 +138,7 @@ func (m *BotManager) WaitingToOutOfTasks() {
 			return
 		case <-ticker.C:
 			if m.IsAllTaskDone() {
-				time.Sleep(10 * time.Second)
+				time.Sleep(500 * time.Millisecond)
 				if m.IsAllTaskDone() {
 					m.log("All channels are empty, all tasks completed")
 					return
