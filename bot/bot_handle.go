@@ -138,6 +138,7 @@ func (m *BotManager) WaitingToOutOfTasks() {
 			return
 		case <-ticker.C:
 			if m.IsAllTaskDone() {
+				m.wgTask.Wait()
 				time.Sleep(500 * time.Millisecond)
 				if m.IsAllTaskDone() {
 					m.log("All channels are empty, all tasks completed")
@@ -149,7 +150,6 @@ func (m *BotManager) WaitingToOutOfTasks() {
 }
 
 func (m *BotManager) IsAllTaskDone() bool {
-	m.wgTask.Wait()
 	return len(m.tasks) == 0 &&
 		len(m.retries) == 0 &&
 		len(m.retries1) == 0 &&
