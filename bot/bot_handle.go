@@ -314,7 +314,7 @@ func (m *BotManager) Summary() map[STATUS]int {
 }
 
 func (m *BotManager) SaveData(data BotResp) error {
-	m.log(fmt.Sprintf("save data : %v", data.Type))
+	m.log(fmt.Sprintf("save data : %v", StatusDescription[data.Type]))
 	if len(data.Data) == 0 {
 		return nil
 	}
