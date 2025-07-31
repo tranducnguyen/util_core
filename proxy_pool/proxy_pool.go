@@ -54,6 +54,7 @@ type ProxyInfo struct {
 // ProxyPool manages a pool of proxies with concurrency control
 type ProxyPool struct {
 	proxies     []*ProxyInfo
+	isWhitelist bool
 	whitelist   chan *ProxyInfo
 	blacklist   map[string]bool
 	mutex       sync.RWMutex
@@ -69,6 +70,7 @@ func NewProxyPool(concurrency int, maxFailures int) *ProxyPool {
 		blacklist:   make(map[string]bool),
 		whitelist:   make(chan *ProxyInfo, concurrency),
 		semaphore:   make(chan struct{}, concurrency),
+		isWhitelist: false,
 		currentIdx:  0,
 		maxFailures: maxFailures,
 		mutex:       sync.RWMutex{},
@@ -172,9 +174,12 @@ func (p *ProxyPool) GetNextProxy() (*ProxyInfo, error) {
 	if len(p.proxies) == 0 {
 		return nil, errors.New("proxy pool is empty")
 	}
-	proxy, err := p.GetWhitelist()
-	if err == nil {
-		return proxy, nil
+
+	if p.isWhitelist {
+		proxy, err := p.GetWhitelist()
+		if err == nil {
+			return proxy, nil
+		}
 	}
 
 	// Try to find a non-in-use proxy
@@ -197,6 +202,11 @@ func (p *ProxyPool) GetNextProxy() (*ProxyInfo, error) {
 		proxy.LastUsed = time.Now()
 		return proxy, nil
 	}
+}
+func (p *ProxyPool) SetWhitelistMode(enabled bool) {
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
+	p.isWhitelist = enabled
 }
 
 func (p *ProxyPool) GetWhitelist() (*ProxyInfo, error) {
@@ -236,8 +246,10 @@ func (p *ProxyPool) ReleaseProxy(proxy *ProxyInfo, success *bool) {
 	}
 
 	fmt.Printf("Release %s, %v", proxy.Address, *success)
-	if *success {
-		p.AddToWhitelist(proxy)
+	if p.isWhitelist {
+		if *success {
+			p.AddToWhitelist(proxy)
+		}
 	}
 
 	// Find the proxy in our list
