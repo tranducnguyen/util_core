@@ -21,6 +21,37 @@ type ClientPool struct {
 	maxIdleTime time.Duration
 }
 
+var (
+	bufferMu        sync.RWMutex
+	readBufferSize  int
+	writeBufferSize int
+)
+
+// SetBufferSizes configures Read/Write buffer sizes for newly created clients.
+// Use values <= 0 to keep fasthttp defaults.
+func SetBufferSizes(readSize, writeSize int) {
+	bufferMu.Lock()
+	readBufferSize = readSize
+	writeBufferSize = writeSize
+	bufferMu.Unlock()
+
+	if globalClientPool == nil {
+		return
+	}
+
+	globalClientPool.mu.Lock()
+	defer globalClientPool.mu.Unlock()
+
+	for _, client := range globalClientPool.clients {
+		if readSize > 0 {
+			client.ReadBufferSize = readSize
+		}
+		if writeSize > 0 {
+			client.WriteBufferSize = writeSize
+		}
+	}
+}
+
 // Global client pool instance
 var (
 	globalClientPool     *ClientPool
@@ -120,6 +151,17 @@ func (p *ClientPool) GetClient(proxy *types.Proxy) *fasthttp.Client {
 		MaxConnDuration:     60 * time.Second,
 		ReadTimeout:         30 * time.Second,
 		WriteTimeout:        30 * time.Second,
+	}
+
+	bufferMu.RLock()
+	readSize := readBufferSize
+	writeSize := writeBufferSize
+	bufferMu.RUnlock()
+	if readSize > 0 {
+		client.ReadBufferSize = readSize
+	}
+	if writeSize > 0 {
+		client.WriteBufferSize = writeSize
 	}
 
 	p.clients[key] = client
