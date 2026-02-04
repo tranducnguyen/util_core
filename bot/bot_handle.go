@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/tranducnguyen/util_core/filehandle"
@@ -14,7 +15,15 @@ import (
 var (
 	BotManagerInstace *BotManager
 	once              sync.Once
+	defaultMaxRetries int32 = 3
 )
+
+func SetDefaultMaxRetries(n int) {
+	if n < 0 {
+		n = 0
+	}
+	atomic.StoreInt32(&defaultMaxRetries, int32(n))
+}
 
 func GetInstance() *BotManager {
 	once.Do(func() {
@@ -47,24 +56,23 @@ type BotLog func(msg string) error
 
 // BotManager quản lý pool workers để xử lý BotData.
 type BotManager struct {
-	ctx       context.Context
-	cancel    context.CancelFunc
-	fn        BotFunc
-	erFn      ErrFunc
-	tasks     chan BotData
-	result    chan BotResp
-	retries   chan BotData
-	retries1  chan BotData
-	retries2  chan BotData
-	wg        sync.WaitGroup
-	wgTask    sync.WaitGroup
-	summaryMu sync.Mutex
-	summary   map[STATUS]int
-	hitFile   *filehandle.WriteHandler
-	errFile   *filehandle.WriteHandler
-	checkFile *filehandle.WriteHandler
-	log       BotLog
-	isStopped bool
+	ctx         context.Context
+	cancel      context.CancelFunc
+	fn          BotFunc
+	erFn        ErrFunc
+	tasks       chan BotData
+	result      chan BotResp
+	retries     chan BotData
+	wg          sync.WaitGroup
+	activeTasks int64
+	maxRetries  int32
+	summaryMu   sync.Mutex
+	summary     map[STATUS]int
+	hitFile     *filehandle.WriteHandler
+	errFile     *filehandle.WriteHandler
+	checkFile   *filehandle.WriteHandler
+	log         BotLog
+	isStopped   bool
 }
 
 func NewBotManager(parentCtx context.Context, poolSize int) *BotManager {
@@ -76,15 +84,14 @@ func NewBotManager(parentCtx context.Context, poolSize int) *BotManager {
 		ctx:    ctx,
 		cancel: cancel,
 		// buffer tasks channel = poolSize để Submit sẽ block khi full
-		tasks:     make(chan BotData, poolSize),
-		retries:   make(chan BotData, poolSize),
-		retries1:  make(chan BotData, poolSize),
-		retries2:  make(chan BotData, poolSize),
-		result:    make(chan BotResp, poolSize),
-		summary:   make(map[STATUS]int),
-		hitFile:   fileResult,
-		errFile:   fileFailed,
-		checkFile: fileCheck,
+		tasks:      make(chan BotData, poolSize),
+		retries:    make(chan BotData, poolSize),
+		result:     make(chan BotResp, poolSize),
+		summary:    make(map[STATUS]int),
+		hitFile:    fileResult,
+		errFile:    fileFailed,
+		checkFile:  fileCheck,
+		maxRetries: atomic.LoadInt32(&defaultMaxRetries),
 	}
 	m.wg.Add(poolSize)
 	for i := 0; i < poolSize; i++ {
@@ -95,6 +102,13 @@ func NewBotManager(parentCtx context.Context, poolSize int) *BotManager {
 
 func (m *BotManager) SetFn(fn BotFunc) {
 	m.fn = fn
+}
+
+func (m *BotManager) SetMaxRetries(n int) {
+	if n < 0 {
+		n = 0
+	}
+	atomic.StoreInt32(&m.maxRetries, int32(n))
 }
 
 func (m *BotManager) IsStopped() bool {
@@ -132,21 +146,23 @@ func (m *BotManager) Wait() {
 }
 
 func (m *BotManager) WaitingToOutOfTasks() {
-	ticker := time.NewTicker(1 * time.Second)
+	ticker := time.NewTicker(300 * time.Millisecond)
 	defer ticker.Stop()
+	stableCount := 0
 
 	for {
 		select {
 		case <-m.ctx.Done():
 			return
 		case <-ticker.C:
-			if m.IsAllTaskDone() {
-				m.wgTask.Wait()
-				time.Sleep(500 * time.Millisecond)
-				if m.IsAllTaskDone() {
+			if m.IsAllTaskDone() && atomic.LoadInt64(&m.activeTasks) == 0 {
+				stableCount++
+				if stableCount >= 3 {
 					m.log("All channels are empty, all tasks completed")
 					return
 				}
+			} else {
+				stableCount = 0
 			}
 		}
 	}
@@ -154,9 +170,7 @@ func (m *BotManager) WaitingToOutOfTasks() {
 
 func (m *BotManager) IsAllTaskDone() bool {
 	return len(m.tasks) == 0 &&
-		len(m.retries) == 0 &&
-		len(m.retries1) == 0 &&
-		len(m.retries2) == 0
+		len(m.retries) == 0
 }
 
 func (m *BotManager) Shutdown() {
@@ -184,10 +198,10 @@ func (m *BotManager) Log(msg string) {
 }
 
 func (m *BotManager) AddWait() {
-	m.wgTask.Add(1)
+	atomic.AddInt64(&m.activeTasks, 1)
 }
 func (m *BotManager) DoneWait() {
-	m.wgTask.Done()
+	atomic.AddInt64(&m.activeTasks, -1)
 }
 
 func (m *BotManager) OnError(err error) {
@@ -198,10 +212,14 @@ func (m *BotManager) OnError(err error) {
 	}
 }
 
-func (m *BotManager) HandleTask(data BotData) {
-	m.wgTask.Add(1)
-	defer m.wgTask.Done()
-	m.log(fmt.Sprintf("Do Task [%v,%v]", len(m.tasks), cap(m.tasks)))
+func (m *BotManager) handle(data BotData, label string, qlen, qcap int) {
+	m.AddWait()
+	defer m.DoneWait()
+
+	if label == "" {
+		label = "Task"
+	}
+	m.log(fmt.Sprintf("Do %s [%v,%v]", label, qlen, qcap))
 	resp, err := m.fn(m.ctx, data)
 
 	if err != nil {
@@ -210,83 +228,55 @@ func (m *BotManager) HandleTask(data BotData) {
 		return
 	}
 
-	m.IncreNum(resp.Type)
 	if resp.Type == Retries {
-		go func() {
-			m.retries <- data
-		}()
+		maxRetries := int(atomic.LoadInt32(&m.maxRetries))
+		if data.Retries >= maxRetries {
+			resp.Type = Bad
+			m.IncreNum(resp.Type)
+			m.SaveData(resp)
+			return
+		}
 
-	} else {
-		m.SaveData(resp)
+		m.IncreNum(resp.Type)
+		data.Retries++
+		m.enqueueRetry(data)
+		return
 	}
+
+	m.IncreNum(resp.Type)
+	m.SaveData(resp)
+}
+
+func (m *BotManager) enqueueRetry(data BotData) {
+	m.AddWait()
+	go func() {
+		defer m.DoneWait()
+		select {
+		case <-m.ctx.Done():
+			return
+		case m.retries <- data:
+		}
+	}()
+}
+
+func (m *BotManager) HandleTask(data BotData) {
+	m.handle(data, "Task", len(m.tasks), cap(m.tasks))
 }
 
 func (m *BotManager) HandleRetry(data BotData) {
-	m.log(fmt.Sprintf("Do Retry [%v,%v]", len(m.retries), cap(m.retries)))
-	m.wgTask.Add(1)
-	defer m.wgTask.Done()
-	resp, err := m.fn(m.ctx, data)
-
-	if err != nil {
-		m.IncreNum(Error)
-		m.OnError(err)
-		return
+	label := "Retry"
+	if data.Retries > 0 {
+		label = fmt.Sprintf("Retry%d", data.Retries)
 	}
-
-	m.IncreNum(resp.Type)
-
-	if resp.Type == Retries {
-		m.Log("Send to retry1")
-		go func() {
-			m.retries1 <- data
-		}()
-
-	} else {
-		m.SaveData(resp)
-	}
+	m.handle(data, label, len(m.retries), cap(m.retries))
 }
 
 func (m *BotManager) HandleRetry1(data BotData) {
-	m.log(fmt.Sprintf("Do Retry1 [%v:%v]", len(m.retries1), cap(m.retries1)))
-	m.wgTask.Add(1)
-	defer m.wgTask.Done()
-	resp, err := m.fn(m.ctx, data)
-
-	if err != nil {
-		m.IncreNum(Error)
-		m.OnError(err)
-		return
-	}
-
-	m.IncreNum(resp.Type)
-	if resp.Type == Retries {
-		m.Log("Send to retry")
-		go func() {
-			m.retries <- data
-		}()
-
-	} else {
-		m.SaveData(resp)
-	}
+	m.HandleRetry(data)
 }
 
 func (m *BotManager) HandleRetry2(data BotData) {
-	m.log(fmt.Sprintf("Do Retry2 [%v:%v]", len(m.retries2), cap(m.retries2)))
-	m.wgTask.Add(1)
-	defer m.wgTask.Done()
-	resp, err := m.fn(m.ctx, data)
-
-	if err != nil {
-		m.IncreNum(Error)
-		m.OnError(err)
-		return
-	}
-
-	if resp.Type == Retries {
-		resp.Type = Bad
-	}
-	m.IncreNum(resp.Type)
-	m.SaveData(resp)
+	m.HandleRetry(data)
 }
 
 func (m *BotManager) worker() {
@@ -307,36 +297,18 @@ func (m *BotManager) worker() {
 				return
 			}
 			m.HandleRetry(data)
-
-		case data, ok := <-m.retries1:
-			if !ok {
-				m.log(fmt.Sprintf("Do Retry1 %v", ok))
-				return
-			}
-			m.HandleRetry1(data)
-
-		case data, ok := <-m.retries2:
-			if !ok {
-				m.log(fmt.Sprintf("Do Retry2 %v", ok))
-				return
-			}
-			m.HandleRetry2(data)
 		}
 
 	}
 }
 
 func (m *BotManager) RetriesProcess(botData BotData) error {
-	if botData.Retries > 3 {
+	maxRetries := int(atomic.LoadInt32(&m.maxRetries))
+	if botData.Retries >= maxRetries {
 		return fmt.Errorf("max time retries")
 	}
 	botData.Retries++
-
-	if condition := botData.Retries % 2; condition == 0 {
-		m.retries1 <- botData
-	} else {
-		m.retries2 <- botData
-	}
+	m.enqueueRetry(botData)
 	return nil
 }
 
